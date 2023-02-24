@@ -24,6 +24,7 @@ import (
 	"os"
 	"os/signal"
 	"path"
+	"path/filepath"
 	"strings"
 	"syscall"
 
@@ -74,8 +75,10 @@ func main() {
 	}
 
 	if err := root.Parse(os.Args[1:]); err != nil {
-		logger.Errorf("failed to parse command line arguments, %v", err)
-		os.Exit(1)
+		title := "ERROR"
+		msg := err.Error()
+		showAlert(logger, title, msg)
+		return
 	}
 
 	waitCh := make(chan struct{})
@@ -83,7 +86,9 @@ func main() {
 
 	go func() {
 		if err := root.Run(ctx); err != nil && !errors.Is(err, flag.ErrHelp) && !errors.Is(err, ctx.Err()) {
-			logger.Errorf("failed to execute, %v", err)
+			title := "ERROR"
+			msg := err.Error()
+			showAlert(logger, title, msg)
 		}
 
 		cancel()
@@ -105,7 +110,6 @@ func main() {
 }
 
 func watch(ctx context.Context, logger *logrus.Logger, cfgPath string) error {
-
 	cfgData, err := os.ReadFile(cfgPath)
 	if err != nil {
 		return fmt.Errorf("read config file: %w", err)
@@ -120,12 +124,21 @@ func watch(ctx context.Context, logger *logrus.Logger, cfgPath string) error {
 		return fmt.Errorf("validate config: %w", err)
 	}
 
+	if cfg.Debug {
+		logger.SetLevel(logrus.DebugLevel)
+	}
+
 	w, err := watcher.New(logger, cfg.Watcher)
 	if err != nil {
 		return err
 	}
 
-	if err := w.AddFolders(cfg.Watcher.Folders...); err != nil {
+	watchList, err := getFoldersToWatch(cfg.Watcher)
+	if err != nil {
+		return err
+	}
+
+	if err := w.AddFolders(watchList...); err != nil {
 		return fmt.Errorf("failed to add folders to watch list: %w", err)
 	}
 
@@ -142,15 +155,18 @@ func watch(ctx context.Context, logger *logrus.Logger, cfgPath string) error {
 		return fmt.Errorf("loading assets: %w", err)
 	}
 
-	if err := os.WriteFile(path.Join(os.TempDir(), warnIconName), warnIcon, os.ModePerm); err != nil {
+	if err := os.WriteFile(filepath.Join(os.TempDir(), warnIconName), warnIcon, os.ModePerm); err != nil {
 		return fmt.Errorf("loading assets: %w", err)
 	}
 
 	defer w.Close()
 
-	logger.Infof("Press CTRL + C to close")
-	logger.Infof("Monitoring %d folders ...", len(cfg.Watcher.Folders))
-	logger.Debugf("Watched Folders: %v", cfg.Watcher.Folders)
+	logger.Info("Monitoring following folders:")
+	for i, folder := range watchList {
+		logger.Printf("[%d] %s", i+1, folder)
+	}
+
+	logger.Info("Press CTRL + C to close")
 
 	return w.Watch(ctx)
 }
@@ -166,12 +182,12 @@ func CheckSizeAndFrame(cfg Config) watcher.Callback {
 			return nil
 		}
 
-		fileName := strings.TrimSuffix(path.Base(e.Name), path.Ext(e.Name))
+		fileName := strings.TrimSuffix(filepath.Base(e.Name), filepath.Ext(e.Name))
 		parts := strings.Split(fileName, fileNameDelimiter)
 
 		// Checking if file name as appropriate number of parts.
 		if len(parts) != 3 {
-			title := "<< INVALID NAME >>"
+			title := "INVALID NAME"
 			msg := fmt.Sprintf("does not have 3 parts separated by %q: %q", fileNameDelimiter, e.Name)
 
 			return showAlert(logger, title, msg)
@@ -180,7 +196,7 @@ func CheckSizeAndFrame(cfg Config) watcher.Callback {
 		frameType := strings.TrimSpace(parts[1])
 		frameSize := strings.TrimSpace(parts[2])
 
-		dirName := path.Base(path.Dir(e.Name))
+		dirName := filepath.Base(filepath.Dir(e.Name))
 		parts = strings.SplitN(dirName, dirNameDelimiter, 2)
 
 		var dirFrameTypeName, dirFrameSize string
@@ -196,7 +212,7 @@ func CheckSizeAndFrame(cfg Config) watcher.Callback {
 
 		frameTypeName, ok := cfg.Metadata.FrameType2Name[frameType]
 		if !ok {
-			title := "<< UNKNOWN FRAME TYPE >>"
+			title := "UNKNOWN FRAME TYPE"
 			msg := fmt.Sprintf("unknown frame type abbreviation %q: %q", frameType, e.Name)
 
 			return showAlert(logger, title, msg)
@@ -207,22 +223,56 @@ func CheckSizeAndFrame(cfg Config) watcher.Callback {
 
 		if wrongFrameSize || wrongFrameType {
 			correctDirName := strings.TrimSpace(fmt.Sprintf("%s %s", frameSize, frameTypeName))
-			title := "<< WRONG FOLDER >>"
+			title := "WRONG FOLDER"
 			msg := fmt.Sprintf("should be placed in %q instead of %q: %q", correctDirName, dirName, e.Name)
 
 			return showAlert(logger, title, msg)
 		}
 
-		logger.Debugf("<< CORRECT FOLDER >> %q: %q", dirName, e.Name)
+		logger.Debugf("CORRECT FOLDER %q: %q", dirName, e.Name)
 
 		return nil
 	}
 }
 
-func showAlert(logger *logrus.Logger, title, msg string) error {
-	logger.Infof("%s %s", title, msg)
+func getFoldersToWatch(cfg watcher.Config) ([]string, error) {
+	watchList := make([]string, 0)
 
-	if err := beeep.Alert(title, msg, path.Join(os.TempDir(), warnIconName)); err != nil {
+	for _, topDir := range cfg.IncludeFolders {
+		subDirs, err := filepath.Glob(topDir)
+		if err != nil {
+			return nil, fmt.Errorf("get sub directories in %q: %w", topDir, err)
+		}
+
+		shouldExclude := false
+
+		for _, sd := range subDirs {
+			for _, toExclude := range cfg.ExcludeFolders {
+				if toExclude == sd {
+					shouldExclude = true
+					break
+				}
+			}
+
+			if shouldExclude {
+				continue
+			}
+
+			watchList = append(watchList, sd)
+		}
+	}
+
+	if len(watchList) == 0 {
+		return nil, fmt.Errorf("no folders to watch under given config")
+	}
+
+	return watchList, nil
+}
+
+func showAlert(logger *logrus.Logger, title, msg string) error {
+	logger.Infof("<< %s >> %s", title, msg)
+
+	if err := beeep.Alert(title, msg, filepath.Join(os.TempDir(), warnIconName)); err != nil {
 		return fmt.Errorf("failed to display %q alert: %v", title, err)
 	}
 

@@ -1,6 +1,22 @@
+# Copyright (2023 -- present) Shahruk Hossain <shahruk10@gmail.com>
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#		 http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+# 
+#
 # Watcher Config File.
 
 metadata:
+  # Mapping between abbreviation used in file name to expanded form in directory name.
   frame_type_mapping:
     "cn":  ""
     "fr":  "black framed"
@@ -8,9 +24,10 @@ metadata:
     "wfr": "white framed"
 
 watcher:
-  folders:
-    - "tmp/watcher/testdata/10x21"
-    - "tmp/watcher/testdata/10x24"
-    - "tmp/watcher/testdata/10x24 black framed"
-    - "tmp/watcher/testdata/10x24 gray framed"
-    - "tmp/watcher/testdata/10x24 white framed"
+  # To include all sub-directories under a particular folder, add \* at the end of the path.
+  include_folders:
+    - C:\Users\Shahruk\Desktop\test\dropbox\*
+
+  # These folders will be excluded from the watch list.
+  exclude_folders:
+    - C:\Users\Shahruk\Desktop\test\dropbox\misc

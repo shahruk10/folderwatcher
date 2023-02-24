@@ -20,6 +20,7 @@ import "github.com/shahruk10/watcher/internal/watcher"
 type Config struct {
 	Watcher  watcher.Config `yaml:"watcher"`
 	Metadata Metadata       `yaml:"metadata"`
+	Debug    bool           `yaml:"debug"`
 }
 
 type Metadata struct {

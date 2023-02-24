@@ -18,18 +18,20 @@ package watcher
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/fsnotify/fsnotify"
 	"github.com/sirupsen/logrus"
 )
 
 type Config struct {
-	Folders []string `yaml:"folders"`
+	IncludeFolders []string `yaml:"include_folders"`
+	ExcludeFolders []string `yaml:"exclude_folders"`
 }
 
 func (cfg *Config) Validate() error {
-	if len(cfg.Folders) == 0 {
-		return fmt.Errorf("no folders specified")
+	if len(cfg.IncludeFolders) == 0 {
+		return fmt.Errorf("no folders to watch specified")
 	}
 
 	return nil
@@ -50,10 +52,29 @@ const (
 // the folders being watched.
 type Event struct {
 	*fsnotify.Event
+	time time.Time
 }
 
 func (e *Event) HasOp(op Op) bool {
 	return e.Has(fsnotify.Op(op))
+}
+
+func (e *Event) IsSameWriteEventAs(e0 *Event) bool {
+	opPairs := [][]fsnotify.Op{
+		{fsnotify.Create, fsnotify.Create},
+		{fsnotify.Create, fsnotify.Write},
+		{fsnotify.Write, fsnotify.Create},
+		{fsnotify.Write, fsnotify.Write},
+	}
+
+	consecutiveWriteEvent := false
+	for _, p := range opPairs {
+		consecutiveWriteEvent = consecutiveWriteEvent || (e0.Has(p[0]) && e.Has(p[1]))
+	}
+
+	elapsedTime := e.time.Sub(e0.time)
+
+	return elapsedTime < time.Second && consecutiveWriteEvent
 }
 
 type Callback = func(ctx context.Context, logger *logrus.Logger, e Event) error
@@ -96,7 +117,21 @@ func (w *FSNotifyWatcher) AddCallbacks(callbacks ...Callback) error {
 }
 
 func (w *FSNotifyWatcher) Watch(ctx context.Context) error {
+	eventLog := make(map[string]*Event)
+
 	for {
+		t0 := time.Now()
+		purge := make([]string, 0, len(eventLog))
+		for name, e := range eventLog {
+			if t0.Sub(e.time) > 30*time.Second {
+				purge = append(purge, name)
+			}
+		}
+
+		for _, name := range purge {
+			delete(eventLog, name)
+		}
+
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
@@ -106,10 +141,25 @@ func (w *FSNotifyWatcher) Watch(ctx context.Context) error {
 				return nil
 			}
 
+			newEvent := Event{Event: &e, time: time.Now()}
+			ignore := false
+
 			w.logger.Debugf("received event: %s", e)
 
+			prevEvent, ok := eventLog[e.Name]
+			if ok {
+				ignore = newEvent.IsSameWriteEventAs(prevEvent)
+			}
+
+			eventLog[e.Name] = &newEvent
+
+			if ignore {
+				w.logger.Infof("ignoring consecutive write events for %q", newEvent.Name)
+				continue
+			}
+
 			for i, callback := range w.callbacks {
-				if err := callback(ctx, w.logger, Event{&e}); err != nil {
+				if err := callback(ctx, w.logger, newEvent); err != nil {
 					w.logger.Errorf("applying callback[%d]: %v", i, err)
 				}
 			}
@@ -138,9 +188,6 @@ func New(logger *logrus.Logger, cfg Config) (Watcher, error) {
 	}
 
 	w := &FSNotifyWatcher{Watcher: wInternal, logger: logger, cfg: cfg}
-	if err := w.AddFolders(cfg.Folders...); err != nil {
-		return nil, err
-	}
 
 	return w, nil
 }
