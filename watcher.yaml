@@ -1,0 +1,16 @@
+# Watcher Config File.
+
+metadata:
+  frame_type_mapping:
+    "cn":  ""
+    "fr":  "black framed"
+    "gff": "gray framed"
+    "wfr": "white framed"
+
+watcher:
+  folders:
+    - "tmp/watcher/testdata/10x21"
+    - "tmp/watcher/testdata/10x24"
+    - "tmp/watcher/testdata/10x24 black framed"
+    - "tmp/watcher/testdata/10x24 gray framed"
+    - "tmp/watcher/testdata/10x24 white framed"
