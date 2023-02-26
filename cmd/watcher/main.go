@@ -17,29 +17,22 @@ package main
 
 import (
 	"context"
-	"embed"
 	"errors"
 	"flag"
 	"fmt"
 	"os"
 	"os/signal"
-	"path"
 	"path/filepath"
+	"regexp"
 	"strings"
+	"sync"
 	"syscall"
 
-	"github.com/gen2brain/beeep"
 	"github.com/peterbourgon/ff/v3/ffcli"
 	"github.com/shahruk10/watcher/internal/watcher"
 	"github.com/sirupsen/logrus"
+	"github.com/sqweek/dialog"
 	"gopkg.in/yaml.v3"
-)
-
-//go:embed assets
-var embeddedData embed.FS
-
-const (
-	warnIconName = "warning.png"
 )
 
 func main() {
@@ -150,15 +143,6 @@ func watch(ctx context.Context, logger *logrus.Logger, cfgPath string) error {
 		return fmt.Errorf("failed to add callbacks: %w", err)
 	}
 
-	warnIcon, err := embeddedData.ReadFile(path.Join("assets", warnIconName))
-	if err != nil {
-		return fmt.Errorf("loading assets: %w", err)
-	}
-
-	if err := os.WriteFile(filepath.Join(os.TempDir(), warnIconName), warnIcon, os.ModePerm); err != nil {
-		return fmt.Errorf("loading assets: %w", err)
-	}
-
 	defer w.Close()
 
 	logger.Info("Monitoring following folders:")
@@ -171,68 +155,146 @@ func watch(ctx context.Context, logger *logrus.Logger, cfgPath string) error {
 	return w.Watch(ctx)
 }
 
+const (
+	attrFrameSize = "frame_size"
+	attrFrameType = "frame_type"
+)
+
 func CheckSizeAndFrame(cfg Config) watcher.Callback {
 	return func(ctx context.Context, logger *logrus.Logger, e watcher.Event) error {
-		const (
-			dirNameDelimiter  = " "
-			fileNameDelimiter = "_"
-		)
-
 		if !e.HasOp(watcher.CreateOp) && !e.HasOp(watcher.WriteOp) {
 			return nil
 		}
 
-		fileName := strings.TrimSuffix(filepath.Base(e.Name), filepath.Ext(e.Name))
-		parts := strings.Split(fileName, fileNameDelimiter)
-
-		// Checking if file name as appropriate number of parts.
-		if len(parts) != 3 {
-			title := "INVALID NAME"
-			msg := fmt.Sprintf("does not have 3 parts separated by %q: %q", fileNameDelimiter, e.Name)
-
-			return showAlert(logger, title, msg)
+		fileAttr, err := getFileAttributes(logger, e.Name, cfg.Metadata.FileNamePatterns)
+		if err != nil {
+			return err
 		}
 
-		frameType := strings.TrimSpace(parts[1])
-		frameSize := strings.TrimSpace(parts[2])
-
-		dirName := filepath.Base(filepath.Dir(e.Name))
-		parts = strings.SplitN(dirName, dirNameDelimiter, 2)
-
-		var dirFrameTypeName, dirFrameSize string
-
-		if len(parts) == 1 {
-			dirFrameSize = parts[0]
-		} else if len(parts) == 2 {
-			dirFrameSize, dirFrameTypeName = parts[0], parts[1]
+		dirAttr, err := getFolderAttributes(logger, filepath.Dir(e.Name), cfg.Metadata.FolderNamePatterns)
+		if err != nil {
+			return err
 		}
 
-		dirFrameTypeName = strings.TrimSpace(dirFrameTypeName)
-		dirFrameSize = strings.TrimSpace(dirFrameSize)
+		// File / folder attributes could not be parsed from file name;
+		// getFileAttributes / getFolderAttributes will have shown an alert already,
+		// so we just return here.
+		if fileAttr == nil || dirAttr == nil {
+			return nil
+		}
 
-		frameTypeName, ok := cfg.Metadata.FrameType2Name[frameType]
+		frameTypeName, ok := cfg.Metadata.FrameType2Name[fileAttr[attrFrameType]]
 		if !ok {
 			title := "UNKNOWN FRAME TYPE"
-			msg := fmt.Sprintf("unknown frame type abbreviation %q: %q", frameType, e.Name)
+			msg := fmt.Sprintf("📁 file:\t%s\n❌ unknown frame type:\t%s", e.Name, fileAttr[attrFrameType])
 
 			return showAlert(logger, title, msg)
 		}
 
-		wrongFrameType := dirFrameTypeName != frameTypeName
-		wrongFrameSize := dirFrameSize != frameSize
+		wrongFrameType := dirAttr[attrFrameType] != frameTypeName
+		wrongFrameSize := dirAttr[attrFrameSize] != fileAttr[attrFrameSize]
+		currentDirName := filepath.Base(filepath.Dir(e.Name))
 
 		if wrongFrameSize || wrongFrameType {
-			correctDirName := strings.TrimSpace(fmt.Sprintf("%s %s", frameSize, frameTypeName))
+			correctDirName := strings.TrimSpace(fmt.Sprintf("%s %s", fileAttr[attrFrameSize], frameTypeName))
 			title := "WRONG FOLDER"
-			msg := fmt.Sprintf("should be placed in %q instead of %q: %q", correctDirName, dirName, e.Name)
+			msg := fmt.Sprintf("📁 file:\t%s\n❌ wrong:\t%s\n✅ correct:\t%s", e.Name, currentDirName, correctDirName)
 
 			return showAlert(logger, title, msg)
 		}
 
-		logger.Debugf("CORRECT FOLDER %q: %q", dirName, e.Name)
+		logger.Debugf("CORRECT FOLDER %q: %q", currentDirName, e.Name)
 
 		return nil
 	}
+}
+
+func getFileAttributes(logger *logrus.Logger, filePath string, fileNamePatterns []string) (map[string]string, error) {
+	pattern := "(" + strings.Join(fileNamePatterns, ")|(") + ")"
+	fileNameRegex := regexp.MustCompile(pattern)
+	attr := make(map[string]string)
+
+	fileName := strings.TrimSuffix(filepath.Base(filePath), filepath.Ext(filePath))
+
+	matches := fileNameRegex.FindStringSubmatch(fileName)
+	logger.Debugf("file attributes regex matches for %q: %s", fileName, matches)
+
+	foundAttrFrameType := false
+	foundAttrFrameSize := false
+
+	if matches != nil {
+		for i, attrName := range fileNameRegex.SubexpNames() {
+			switch {
+			case attrName == attrFrameType && matches[i] != "":
+				attr[attrFrameType] = strings.ToLower(strings.TrimSpace(matches[i]))
+				foundAttrFrameType = true
+			case attrName == attrFrameSize && matches[i] != "":
+				attr[attrFrameSize] = strings.ToLower(strings.TrimSpace(matches[i]))
+				foundAttrFrameSize = true
+			}
+		}
+	}
+
+	if !foundAttrFrameType {
+		title := "INVALID FILE NAME"
+		msg := fmt.Sprintf("📁 file:\t%s\n❌ error:\tfile name does not specify frame type in the configured format", filePath)
+
+		return nil, showAlert(logger, title, msg)
+	}
+
+	if !foundAttrFrameSize {
+		title := "INVALID FILE NAME"
+		msg := fmt.Sprintf("📁 file:\t%s\n❌ error:\tdoes not specify frame size in the configured format", filePath)
+
+		return nil, showAlert(logger, title, msg)
+	}
+
+	logger.Debugf("file attributes for %q: %s", fileName, attr)
+
+	return attr, nil
+}
+
+func getFolderAttributes(logger *logrus.Logger, folderPath string, folderNamePatterns []string) (map[string]string, error) {
+	patterns := "(" + strings.Join(folderNamePatterns, ")|(") + ")"
+	dirNameRegex := regexp.MustCompile(patterns)
+	attr := make(map[string]string)
+
+	dirName := filepath.Base(folderPath)
+
+	matches := dirNameRegex.FindStringSubmatch(dirName)
+	logger.Debugf("folder attributes regex matches for %q: %s", dirName, matches)
+
+	foundAttrFrameType := false
+	foundAttrFrameSize := false
+
+	if matches != nil {
+		for i, attrName := range dirNameRegex.SubexpNames() {
+			switch {
+			case attrName == attrFrameType && matches[i] != "":
+				attr[attrFrameType] = strings.ToLower(strings.TrimSpace(matches[i]))
+				foundAttrFrameType = true
+			case attrName == attrFrameSize && matches[i] != "":
+				attr[attrFrameSize] = strings.ToLower(strings.TrimSpace(matches[i]))
+				foundAttrFrameSize = true
+			}
+		}
+	}
+
+	// Frame type is optional in the folder name.
+	if !foundAttrFrameType {
+		attr[attrFrameType] = ""
+	}
+
+	if !foundAttrFrameSize {
+		title := "INVALID FOLDER NAME"
+		msg := fmt.Sprintf("📁 folder:\t%s\n❌ error:\tdoes not specify frame size in the configured format", folderPath)
+
+		return nil, showAlert(logger, title, msg)
+	}
+
+	logger.Debugf("folder attributes for %q: %s", dirName, attr)
+
+	return attr, nil
 }
 
 func getFoldersToWatch(cfg watcher.Config) ([]string, error) {
@@ -247,6 +309,11 @@ func getFoldersToWatch(cfg watcher.Config) ([]string, error) {
 		shouldExclude := false
 
 		for _, sd := range subDirs {
+			info, err := os.Stat(sd)
+			if err != nil || !info.IsDir() {
+				continue
+			}
+
 			for _, toExclude := range cfg.ExcludeFolders {
 				if toExclude == sd {
 					shouldExclude = true
@@ -269,12 +336,14 @@ func getFoldersToWatch(cfg watcher.Config) ([]string, error) {
 	return watchList, nil
 }
 
-func showAlert(logger *logrus.Logger, title, msg string) error {
-	logger.Infof("<< %s >> %s", title, msg)
+var windowMu sync.Mutex
 
-	if err := beeep.Alert(title, msg, filepath.Join(os.TempDir(), warnIconName)); err != nil {
-		return fmt.Errorf("failed to display %q alert: %v", title, err)
-	}
+var showAlert = func(logger *logrus.Logger, title, msg string) error {
+	logger.Infof("<< %s >> %q", title, msg)
+
+	windowMu.Lock()
+	dialog.Message(msg).Title(title).Error()
+	windowMu.Unlock()
 
 	return nil
 }

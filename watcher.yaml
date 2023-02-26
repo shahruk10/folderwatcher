@@ -16,18 +16,56 @@
 # Watcher Config File.
 
 metadata:
+  # Regular expression(s) for folder names; must specify named match groups: "frame_size" and "frame_type".
+  folder_name_patterns:
+    - ^(?P<frame_size>\d+x\d+)$
+    - ^(?P<frame_size>\d+x\d+) (?P<frame_type>(floating )?(white|gray|black|gold) framed)$
+    - ^(?P<frame_type>(floating )?(white|gray|black|gold) framed( \d+pc)?) (?P<frame_size>\d+x\d+)$
+    - ^(?P<frame_type>(wood|wood horz|wood vert|wood crx|framed)( \d+pc)?) (?P<frame_size>\d+x\d+)$
+
+  # Regular expression(s) for file names; must specify named match groups: "frame_size" and "frame_type".
+  file_name_patterns:
+    - ^([^_]+)_(?P<frame_type>[^_]+)_(?P<frame_size>\d+x\d+).*$
+    - ^([^_]+)_(?P<frame_type>[^_]+_[^_]+)_(?P<frame_size>\d+x\d+).*$
+
   # Mapping between abbreviation used in file name to expanded form in directory name.
   frame_type_mapping:
     "cn":  ""
     "fr":  "black framed"
     "gff": "gray framed"
+    "gff_2pc" : "gray framed 2pc"
+    "gff_3pc" : "gray framed 3pc"
+    "gff_4pc" : "gray framed 4pc"
+    "gff_9pc" : "gray framed 9pc"
     "wfr": "white framed"
+    "wfr_2pc" : "white framed 2pc"
+    "wfr_3pc" : "white framed 3pc"
+    "wfr_4pc" : "white framed 4pc"
+    "wfr_9pc" : "white framed 9pc"
+    "wd" : "wood"
+    "wd_2pc" : "wood 2pc"
+    "wd_3pc" : "wood 3pc"
+    "wd_4pc" : "wood 4pc"
+    "wd_crx" : "wood crx"
+    "wd_horz" : "wood horz"
+    "wd_vert" : "wood vert"
+    # "" : "floating black framed"
+    # "" : "floating gold framed"
+    # "" : "floating gray framed"
+    # "" : "framed"
+    # "" : "framed 2pc"
+    # "" : "framed 3pc"
+    # "" : "framed 4pc"
+    # "" : "framed 9pc"
+
+
+
 
 watcher:
   # To include all sub-directories under a particular folder, add \* at the end of the path.
   include_folders:
-    - C:\Users\Shahruk\Desktop\test\dropbox\*
+    - ./testdata/*
 
   # These folders will be excluded from the watch list.
-  exclude_folders:
-    - C:\Users\Shahruk\Desktop\test\dropbox\misc
+  # exclude_folders:
+  #   - C:\Users\Shahruk\Desktop\test\dropbox\misc

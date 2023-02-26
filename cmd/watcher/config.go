@@ -15,7 +15,13 @@
 
 package main
 
-import "github.com/shahruk10/watcher/internal/watcher"
+import (
+	"fmt"
+	"regexp"
+	"strings"
+
+	"github.com/shahruk10/watcher/internal/watcher"
+)
 
 type Config struct {
 	Watcher  watcher.Config `yaml:"watcher"`
@@ -23,10 +29,42 @@ type Config struct {
 	Debug    bool           `yaml:"debug"`
 }
 
-type Metadata struct {
-	FrameType2Name map[string]string `yaml:"frame_type_mapping"`
+func (cfg *Config) Validate() error {
+	if err := cfg.Metadata.Validate(); err != nil {
+		return err
+	}
+
+	return cfg.Watcher.Validate()
 }
 
-func (cfg *Config) Validate() error {
-	return cfg.Watcher.Validate()
+type Metadata struct {
+	FrameType2Name     map[string]string `yaml:"frame_type_mapping"`
+	FolderNamePatterns []string          `yaml:"folder_name_patterns"`
+	FileNamePatterns   []string          `yaml:"file_name_patterns"`
+}
+
+func (cfg *Metadata) Validate() error {
+	if len(cfg.FolderNamePatterns) == 0 {
+		return fmt.Errorf("validate metadata: folder name pattern must be specified")
+	}
+
+	pattern := "(" + strings.Join(cfg.FolderNamePatterns, ")|(") + ")"
+	if _, err := regexp.Compile(pattern); err != nil {
+		return fmt.Errorf("validate metadata: folder name pattern not valid regular expression, %w", err)
+	}
+
+	if len(cfg.FolderNamePatterns) == 0 {
+		return fmt.Errorf("validate metadata: file name pattern must be specified")
+	}
+
+	pattern = "(" + strings.Join(cfg.FileNamePatterns, ")|(") + ")"
+	if _, err := regexp.Compile(pattern); err != nil {
+		return fmt.Errorf("validate metadata: file name pattern not valid regular expression, %w", err)
+	}
+
+	if len(cfg.FrameType2Name) == 0 {
+		return fmt.Errorf("validate metadata: frame_type_mapping must be specified")
+	}
+
+	return nil
 }

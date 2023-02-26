@@ -158,11 +158,13 @@ func (w *FSNotifyWatcher) Watch(ctx context.Context) error {
 				continue
 			}
 
-			for i, callback := range w.callbacks {
-				if err := callback(ctx, w.logger, newEvent); err != nil {
-					w.logger.Errorf("applying callback[%d]: %v", i, err)
+			go func() {
+				for i, callback := range w.callbacks {
+					if err := callback(ctx, w.logger, newEvent); err != nil {
+						w.logger.Errorf("applying callback[%d]: %v", i, err)
+					}
 				}
-			}
+			}()
 
 		case err, ok := <-w.Errors:
 			if !ok {
