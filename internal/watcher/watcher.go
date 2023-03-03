@@ -172,7 +172,7 @@ func (w *FSNotifyWatcher) Watch(ctx context.Context) error {
 			}
 
 			if err != nil {
-				w.logger.Error("encountered error: %v", err)
+				w.logger.Errorf("encountered error: %v", err)
 			}
 		}
 	}

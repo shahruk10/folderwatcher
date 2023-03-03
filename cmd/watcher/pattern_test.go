@@ -106,8 +106,8 @@ func TestFolderAttributes(t *testing.T) {
 
 	folderAttrPatterns := []string{
 		`^(?P<frame_size>\d+x\d+)$`,
-		`^(?P<frame_size>\d+x\d+) (?P<frame_type>(floating )?(white|gray|black|gold) framed)$`,
-		`^(?P<frame_type>(floating )?(white|gray|black|gold) framed( \d+pc)?) (?P<frame_size>\d+x\d+)$`,
+		`^(?P<frame_size>\d+x\d+) (?P<frame_type>(floating )?((white|gray|black|gold) )?framed)$`,
+		`^(?P<frame_type>(floating )?((white|gray|black|gold) )?framed( \d+pc)?) (?P<frame_size>\d+x\d+)$`,
 		`^(?P<frame_type>(wood|wood horz|wood vert|wood crx|framed)( \d+pc)?) (?P<frame_size>\d+x\d+)$`,
 	}
 

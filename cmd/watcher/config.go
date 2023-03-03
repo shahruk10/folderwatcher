@@ -38,9 +38,9 @@ func (cfg *Config) Validate() error {
 }
 
 type Metadata struct {
-	FrameType2Name     map[string]string `yaml:"frame_type_mapping"`
-	FolderNamePatterns []string          `yaml:"folder_name_patterns"`
-	FileNamePatterns   []string          `yaml:"file_name_patterns"`
+	FrameType2Name     map[string][]string `yaml:"frame_type_mapping"`
+	FolderNamePatterns []string            `yaml:"folder_name_patterns"`
+	FileNamePatterns   []string            `yaml:"file_name_patterns"`
 }
 
 func (cfg *Metadata) Validate() error {

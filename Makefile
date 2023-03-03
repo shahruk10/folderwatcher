@@ -16,7 +16,7 @@
 
 ARCH?=amd64
 
-all: build
+all: clean test build
 
 build: build-watcher
 
@@ -25,6 +25,9 @@ build-watcher:
 		mkdir -p bin
 		GOARCH=$(ARCH) GOOS=linux go build -o bin/watcher -ldflags "-s -w" ./cmd/watcher
 		GOARCH=$(ARCH) GOOS=windows go build -o bin/watcher.exe -ldflags "-s -w" ./cmd/watcher
+
+test:
+	go test -race -cover -ldflags "-s -w" ./...
 
 clean:
 	rm -rf bin

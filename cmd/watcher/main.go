@@ -183,22 +183,43 @@ func CheckSizeAndFrame(cfg Config) watcher.Callback {
 			return nil
 		}
 
-		frameTypeName, ok := cfg.Metadata.FrameType2Name[fileAttr[attrFrameType]]
+		frameTypeNames, ok := cfg.Metadata.FrameType2Name[fileAttr[attrFrameType]]
 		if !ok {
 			title := "UNKNOWN FRAME TYPE"
-			msg := fmt.Sprintf("📁 file:\t%s\n❌ unknown frame type:\t%s", e.Name, fileAttr[attrFrameType])
+			msg := fmt.Sprintf(
+				"%s: %s\n%s: %s",
+				"📁 file", e.Name, "❌ unknown frame type", fileAttr[attrFrameType],
+			)
 
 			return showAlert(logger, title, msg)
 		}
 
-		wrongFrameType := dirAttr[attrFrameType] != frameTypeName
+		wrongFrameType := true
+		for _, name := range frameTypeNames {
+			wrongFrameType = wrongFrameType && dirAttr[attrFrameType] != name
+		}
+
 		wrongFrameSize := dirAttr[attrFrameSize] != fileAttr[attrFrameSize]
 		currentDirName := filepath.Base(filepath.Dir(e.Name))
 
 		if wrongFrameSize || wrongFrameType {
-			correctDirName := strings.TrimSpace(fmt.Sprintf("%s %s", fileAttr[attrFrameSize], frameTypeName))
+			var correctDirName string
+			if !wrongFrameType {
+				correctDirName = strings.TrimSpace(fmt.Sprintf("%s %s", fileAttr[attrFrameSize], dirAttr[attrFrameType]))
+			} else {
+				possibleNames := make([]string, 0, len(frameTypeNames))
+				for _, name := range frameTypeNames {
+					possibleNames = append(possibleNames, strings.TrimSpace(fmt.Sprintf("%s %s", fileAttr[attrFrameSize], name)))
+				}
+
+				correctDirName = strings.Join(possibleNames, " OR ")
+			}
+
 			title := "WRONG FOLDER"
-			msg := fmt.Sprintf("📁 file:\t%s\n❌ wrong:\t%s\n✅ correct:\t%s", e.Name, currentDirName, correctDirName)
+			msg := fmt.Sprintf(
+				"%s: %s\n%s: %s\n%s: %s",
+				"📁 file", filepath.Base(e.Name), "❌ wrong", currentDirName, "✅ correct", correctDirName,
+			)
 
 			return showAlert(logger, title, msg)
 		}
@@ -237,14 +258,20 @@ func getFileAttributes(logger *logrus.Logger, filePath string, fileNamePatterns 
 
 	if !foundAttrFrameType {
 		title := "INVALID FILE NAME"
-		msg := fmt.Sprintf("📁 file:\t%s\n❌ error:\tfile name does not specify frame type in the configured format", filePath)
+		msg := fmt.Sprintf(
+			"%s: %s\n%s: %s",
+			"📁 file", fileName, "❌ error", "does not specify frame type in the configured format",
+		)
 
 		return nil, showAlert(logger, title, msg)
 	}
 
 	if !foundAttrFrameSize {
 		title := "INVALID FILE NAME"
-		msg := fmt.Sprintf("📁 file:\t%s\n❌ error:\tdoes not specify frame size in the configured format", filePath)
+		msg := fmt.Sprintf(
+			"%s: %s\n%s: %s",
+			"📁 file", fileName, "❌ error", "does not specify frame size in the configured format",
+		)
 
 		return nil, showAlert(logger, title, msg)
 	}
@@ -287,7 +314,10 @@ func getFolderAttributes(logger *logrus.Logger, folderPath string, folderNamePat
 
 	if !foundAttrFrameSize {
 		title := "INVALID FOLDER NAME"
-		msg := fmt.Sprintf("📁 folder:\t%s\n❌ error:\tdoes not specify frame size in the configured format", folderPath)
+		msg := fmt.Sprintf(
+			"%s: %s\n%s: %s",
+			"📁 folder", dirName, "❌ error", "does not specify frame size in the configured format",
+		)
 
 		return nil, showAlert(logger, title, msg)
 	}
